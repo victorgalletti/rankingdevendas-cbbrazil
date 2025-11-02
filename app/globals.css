@@ -5,26 +5,43 @@
 @layer base {
   /* Definição das variáveis de cor (Seu código original) */
   :root {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    /* Fundo principal (Baseado em #212121) */
+    --background: 0 0% 13%;
+    --foreground: 210 40% 98%; /* Texto principal (branco/cinza claro) - Mantido */
+
+    /* Cards e Popovers (Baseado em #212121) */
+    --card: 0 0% 13%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 0 0% 13%;
     --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
+
+    /* Cor primária (Baseado em #00c32f) */
+    --primary: 132 100% 38%;
+    --primary-foreground: 210 40% 98%; /* Alterado para branco para contraste */
+
+    /* Cor secundária (Baseado no verde escuro #053819) */
+    --secondary: 148 83% 12%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+
+    /* Variações sutis (Baseado no verde escuro #053819) */
+    --muted: 148 83% 12%;
+    --muted-foreground: 215 20.2% 65.1%; /* Cinza para texto "muted" - Mantido */
+
+    --accent: 148 83% 12%;
     --accent-foreground: 210 40% 98%;
+
+    /* Cor destrutiva (Vermelho) - Mantido */
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-    --radius: 0.5rem;
+
+    /* Bordas e Inputs (Baseado no verde escuro #053819) */
+    --border: 148 83% 12%;
+    --input: 148 83% 12%;
+
+    /* Foco (Baseado em #00c32f) */
+    --ring: 132 100% 38%;
+
+    --radius: 0.5rem; /* Mantido */
   }
 
   /* ##############################################################
