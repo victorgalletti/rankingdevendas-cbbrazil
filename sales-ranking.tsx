@@ -1,7 +1,7 @@
 "use client";
 
 // 1. Imports (Adicionado 'createPortal')
-import { useEffect, useState, Fragment, useRef } from "react";
+import { useEffect, useState, Fragment, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -35,6 +35,8 @@ interface Vendedor {
   nome: string;
   avatarUrl: string;
   pontuacao: number; // <-- Isso agora será a contagem DO MÊS
+  pontuacaoDiaria: number; // 🔴 MUDANÇA: Pontuação do dia
+  pontuacaoSemanal: number; // 🔴 MUDANÇA: Pontuação da semana
   metrica_nome: string;
   metrica_valor: number; // <-- Isso também será a contagem DO MÊS
   metrica_total: number;
@@ -88,7 +90,9 @@ export default function SalesRanking() {
 
   // States de dados
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
+  const [top3Vendedores, setTop3Vendedores] = useState<Vendedor[]>([]); // 🔴 MUDANÇA: Estado para o pódio semanal
   const [totalPontosDia, setTotalPontosDia] = useState(0);
+  const [totalPontosSemana, setTotalPontosSemana] = useState(0);
   const [totalPontosMes, setTotalPontosMes] = useState(0);
   const [totalPontosAno, setTotalPontosAno] = useState(0);
 
@@ -101,46 +105,14 @@ export default function SalesRanking() {
 
   // Constantes
   const ITEMS_PER_PAGE = 14;
-  const META_TIME = 100000;
-  const META_MARCOS = 1000;
-  const META_VANIA = 100000;
-  const META_WENDEL = 1000;
-  const META_GABRIEL = 1000;
-  const META_DEBORA = 1000;
-  const META_ANACLARA = 1000;
-  const VALOR_FIXO_ANUAL = 0;
+  const META_DIARIA = 1500;
+  const META_SEMANA = 7500;
+  const META_MENSAL = 30000;
 
   // Hook para manter o Ref
   useEffect(() => {
     previousVendedoresRef.current = vendedores;
   }, [vendedores]);
-
-  // Função para obter a meta de cada vendedor
-  const getMetaParaVendedor = (nome: string): number => {
-    // Normalização mais robusta para remover acentos e espaços
-    const nomeNormalizado = nome
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/\s+/g, "")
-      .toUpperCase();
-
-    switch (nomeNormalizado) {
-      case "MARCOS":
-        return META_MARCOS;
-      case "VANIA":
-        return META_VANIA;
-      case "WENDEL":
-        return META_WENDEL;
-      case "GABRIEL":
-        return META_GABRIEL;
-      case "DEBORA":
-        return META_DEBORA;
-      case "ANACLARA":
-        return META_ANACLARA;
-      default:
-        return META_TIME; // Uma meta padrão
-    }
-  };
 
   // Hook para 'isMounted'
   useEffect(() => {
@@ -148,97 +120,117 @@ export default function SalesRanking() {
   }, []);
 
   // Função formatarVendedores
-  const formatarVendedores = (
-    listaVendedoresSupabase: VendedorSupabase[],
-    vendasDoMes: VendaSupabase[]
-  ): Vendedor[] => {
-    const pontuacaoPorVendedor: { [key: string]: number } = {};
-
-    // Soma a comissão de cada vendedor
-    for (const venda of vendasDoMes) {
-      if (!pontuacaoPorVendedor[venda.vendedor]) {
-        pontuacaoPorVendedor[venda.vendedor] = 0;
-      }
-      pontuacaoPorVendedor[venda.vendedor] += venda.comissaoempresa;
-    }
-
-    const vendedoresFormatados = listaVendedoresSupabase.map((vendedor) => {
-      const pontuacao = pontuacaoPorVendedor[vendedor.nome] || 0;
-      const meta = getMetaParaVendedor(vendedor.nome);
-
-      return {
-        rank: 0,
-        nome: vendedor.nome,
-        avatarUrl: vendedor.avatarurl || "/placeholder.svg",
-        pontuacao: pontuacao,
-        metrica_valor: pontuacao, // Usando a pontuação em R$ para a barra de progresso
-        metrica_total: meta,
-        metrica_nome: pontuacao >= meta ? "Meta Atingida" : "Faltam",
+  const formatarVendedores = useCallback(
+    (
+      listaVendedoresSupabase: VendedorSupabase[],
+      vendasDiarias: VendaSupabase[],
+      vendasSemanais: VendaSupabase[],
+      vendasMensais: VendaSupabase[]
+    ): Vendedor[] => {
+      // Função para calcular pontuação de um período
+      const calcularPontuacao = (vendas: VendaSupabase[]) => {
+        const pontuacao: { [key: string]: number } = {};
+        for (const venda of vendas) {
+          if (!pontuacao[venda.vendedor]) {
+            pontuacao[venda.vendedor] = 0;
+          }
+          pontuacao[venda.vendedor] += venda.comissaoempresa;
+        }
+        return pontuacao;
       };
-    });
 
-    const ordenados = vendedoresFormatados.sort(
-      (a, b) => b.pontuacao - a.pontuacao
-    );
+      const pontuacaoDiariaPorVendedor = calcularPontuacao(vendasDiarias);
+      const pontuacaoSemanalPorVendedor = calcularPontuacao(vendasSemanais);
+      const pontuacaoMensalPorVendedor = calcularPontuacao(vendasMensais);
 
-    return ordenados.map((vendedor, index) => ({
-      ...vendedor,
-      rank: index + 1,
-    }));
-  };
+      const vendedoresFormatados = listaVendedoresSupabase.map((vendedor) => {
+        const pontuacaoMensal = pontuacaoMensalPorVendedor[vendedor.nome] || 0;
+        const pontuacaoDiaria = pontuacaoDiariaPorVendedor[vendedor.nome] || 0;
+        const pontuacaoSemanal =
+          pontuacaoSemanalPorVendedor[vendedor.nome] || 0;
+
+        return {
+          rank: 0,
+          nome: vendedor.nome,
+          avatarUrl: vendedor.avatarurl || "/placeholder.svg",
+          pontuacao: pontuacaoMensal, // A pontuação principal continua sendo a mensal para o ranking
+          pontuacaoDiaria: pontuacaoDiaria,
+          pontuacaoSemanal: pontuacaoSemanal,
+          metrica_valor: pontuacaoMensal, // Barra de progresso baseada na meta mensal
+          metrica_total: META_MENSAL,
+          metrica_nome:
+            pontuacaoMensal >= META_MENSAL ? "Meta Atingida" : "Faltam",
+        };
+      });
+
+      // A ordenação continua baseada na pontuação MENSAL
+      const ordenados = vendedoresFormatados.sort(
+        (a, b) => b.pontuacao - a.pontuacao
+      );
+
+      return ordenados.map((vendedor, index) => ({
+        ...vendedor,
+        rank: index + 1,
+      }));
+    },
+    []
+  );
 
   // Função checkForEvents
-  const checkForEvents = (
-    oldRanking: Vendedor[],
-    newRanking: Vendedor[]
-  ): boolean => {
-    if (oldRanking.length === 0) return false;
+  const checkForEvents = useCallback(
+    (oldRanking: Vendedor[], newRanking: Vendedor[]): boolean => {
+      if (oldRanking.length === 0) return false;
 
-    const newFirst = newRanking[0];
-    const oldFirst = oldRanking[0];
-    if (newFirst && oldFirst && newFirst.nome !== oldFirst.nome) {
-      setEventMessage(`${newFirst.nome} assumiu a primeira posição!`);
-      setEventImageUrl(newFirst.avatarUrl);
-      setActiveEvent("first-place");
-      setPlayRequest("first-place");
-      return true; // Evento encontrado
-    }
-
-    const newPodium = newRanking.slice(0, 3).map((v) => v.nome);
-    const oldPodium = oldRanking.slice(0, 3).map((v) => v.nome);
-    const novoMembroPodium = newPodium.find(
-      (nome) => !oldPodium.includes(nome)
-    );
-
-    if (novoMembroPodium) {
-      const seller = newRanking.find((v) => v.nome === novoMembroPodium);
-      setEventMessage(`${novoMembroPodium} entrou no Top 3!`);
-      setEventImageUrl(seller?.avatarUrl);
-      setActiveEvent("podium");
-      setPlayRequest("podium");
-      return true; // Evento encontrado
-    }
-
-    for (const newSeller of newRanking) {
-      const oldSeller = oldRanking.find((s) => s.nome === newSeller.nome);
-      if (oldSeller && newSeller.rank < oldSeller.rank) {
-        const overtakenSeller = oldRanking.find(
-          (s) => s.rank === newSeller.rank
-        );
-        setEventMessage(
-          `${newSeller.nome} passou ${overtakenSeller?.nome || "um oponente"}!`
-        );
-        setEventImageUrl(newSeller.avatarUrl);
-        setActiveEvent("overtake");
-        setPlayRequest("overtake");
+      const newFirst = newRanking[0];
+      const oldFirst = oldRanking[0];
+      if (newFirst && oldFirst && newFirst.nome !== oldFirst.nome) {
+        setEventMessage(`${newFirst.nome} assumiu a primeira posição!`);
+        setEventImageUrl(newFirst.avatarUrl);
+        setActiveEvent("first-place");
+        setPlayRequest("first-place");
         return true; // Evento encontrado
       }
-    }
 
-    return false; // Nenhum evento especial encontrado
-  };
+      const newPodium = newRanking.slice(0, 3).map((v) => v.nome);
+      const oldPodium = oldRanking.slice(0, 3).map((v) => v.nome);
+      const novoMembroPodium = newPodium.find(
+        (nome) => !oldPodium.includes(nome)
+      );
 
-  // Função fetchData
+      if (novoMembroPodium) {
+        const seller = newRanking.find((v) => v.nome === novoMembroPodium);
+        setEventMessage(`${novoMembroPodium} entrou no Top 3!`);
+        setEventImageUrl(seller?.avatarUrl);
+        setActiveEvent("podium");
+        setPlayRequest("podium");
+        return true; // Evento encontrado
+      }
+
+      for (const newSeller of newRanking) {
+        const oldSeller = oldRanking.find((s) => s.nome === newSeller.nome);
+        if (oldSeller && newSeller.rank < oldSeller.rank) {
+          const overtakenSeller = oldRanking.find(
+            (s) => s.rank === newSeller.rank
+          );
+          setEventMessage(
+            `${newSeller.nome} passou ${
+              overtakenSeller?.nome || "um oponente"
+            }!`
+          );
+          setEventImageUrl(newSeller.avatarUrl);
+          setActiveEvent("overtake");
+          setPlayRequest("overtake");
+          return true; // Evento encontrado
+        }
+      }
+
+      return false; // Nenhum evento especial encontrado
+    },
+    []
+  );
+
+  // 🔴 MUDANÇA: A função fetchData agora é a única fonte de verdade
+  // Foi removido o useCallback para que a função sempre tenha acesso ao ref mais recente.
   const fetchData = async () => {
     try {
       const hoje = new Date();
@@ -249,6 +241,12 @@ export default function SalesRanking() {
       );
       const inicioDoAno = new Date(hoje.getFullYear(), 0, 1);
       const inicioDoMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+      // 🔴 MUDANÇA: Calcula o início da semana (domingo)
+      const inicioDaSemana = new Date(
+        hoje.getFullYear(),
+        hoje.getMonth(),
+        hoje.getDate() - hoje.getDay()
+      );
 
       // 🔴 MUDANÇA: Busca na nova tabela de vendas e na de vendedores (para avatares)
       const [vendedoresResponse, vendasDoAnoResponse] = await Promise.all([
@@ -271,10 +269,18 @@ export default function SalesRanking() {
         const vendasDoMes = vendasDoAno.filter(
           (v) => new Date(v.datavendaganha) >= inicioDoMes
         );
+        const vendasDaSemana = vendasDoMes.filter(
+          (v) => new Date(v.datavendaganha) >= inicioDaSemana
+        );
         const vendasDoDia = vendasDoMes.filter(
           (v) => new Date(v.datavendaganha) >= inicioDoDia
         );
 
+        // 🔴 MUDANÇA: Calcula o total da semana
+        const totalSemana = vendasDaSemana.reduce(
+          (acc, v) => acc + v.comissaoempresa,
+          0
+        );
         // 🔴 MUDANÇA: Calcula os totais somando a comissão
         const totalMes = vendasDoMes.reduce(
           (acc, v) => acc + v.comissaoempresa,
@@ -289,26 +295,31 @@ export default function SalesRanking() {
           0
         );
 
-        // O valor fixo anual agora é somado ao total do ano
-        const totalAnoCorrigido = VALOR_FIXO_ANUAL + totalAno;
-
-        setTotalPontosAno(totalAnoCorrigido);
+        setTotalPontosAno(totalAno);
+        setTotalPontosSemana(totalSemana); // Atualiza o total da semana
         setTotalPontosMes(totalMes);
         setTotalPontosDia(totalDia);
 
+        // 🔴 MUDANÇA: Formata os vendedores para o pódio (semanal)
+        const vendedoresDaSemana = formatarVendedores(
+          listaVendedores,
+          vendasDoDia,
+          vendasDaSemana,
+          vendasDoMes // A pontuação principal do pódio é baseada na semana, mas precisamos dos outros dados
+        );
+        setTop3Vendedores(vendedoresDaSemana.slice(0, 3));
+
+        // Formata os vendedores para o ranking principal (mensal)
         const novosVendedores = formatarVendedores(
           listaVendedores,
+          vendasDoDia,
+          vendasDaSemana,
           vendasDoMes
         );
 
+        // 🔴 MUDANÇA: A lógica de eventos e atualização de estado
+        // foi movida para DENTRO do fetchData.
         if (previousVendedoresRef.current.length > 0) {
-          console.log("[v0] Checking for events...");
-          console.log(
-            "[v0] Previous rankings:",
-            previousVendedoresRef.current.length
-          );
-          console.log("[v0] New rankings:", novosVendedores.length);
-
           const eventoEspecialEncontrado = checkForEvents(
             previousVendedoresRef.current,
             novosVendedores
@@ -323,25 +334,17 @@ export default function SalesRanking() {
             });
 
             if (sellerWithNewPoint) {
-              console.log(
-                "[v0] New sale detected for:",
-                sellerWithNewPoint.nome
-              );
               setEventMessage(
                 `${sellerWithNewPoint.nome} fechou um novo contrato!`
               );
               setEventImageUrl(sellerWithNewPoint.avatarUrl);
               setActiveEvent("new-point");
               setPlayRequest("new-point");
-            } else {
-              console.log("[v0] No new points detected");
             }
           }
-        } else {
-          console.log("[v0] Skipping event check - first load");
         }
 
-        setVendedores(novosVendedores);
+        setVendedores(novosVendedores); // Atualiza o estado principal
         setLastUpdate(new Date());
         setError(null);
       }
@@ -359,15 +362,16 @@ export default function SalesRanking() {
 
   // useEffect Realtime
   useEffect(() => {
-    fetchData(); // Busca inicial
+    // 1. Busca inicial
+    fetchData();
 
+    // 2. Define o handler que apenas chama a função estável
     const handleInserts = (payload: any) => {
       console.log("Nova venda! Recalculando tudo...", payload);
       fetchData();
-      setLastUpdate(new Date());
     };
 
-    // 🔴 MUDANÇA: Escuta a nova tabela
+    // 3. Inscreve-se nos canais usando o novo handler
     const vendasChannel = supabase
       .channel("vendas_changes") // ⚠️ ATENÇÃO: Canal com nome único
       .on(
@@ -394,11 +398,12 @@ export default function SalesRanking() {
       )
       .subscribe();
 
+    // 4. Limpa as inscrições ao desmontar
     return () => {
       supabase.removeChannel(vendasChannel);
       supabase.removeChannel(vendedoresChannel);
     };
-  }, []); // Array vazio, roda só uma vez.
+  }, [fetchData]); // 🔴 MUDANÇA: A única dependência é o fetchData estável
 
   // -----------------------------------------------------------------
   // 🔴 MUDANÇA 2: useEffect de Teste CORRIGIDO
@@ -440,7 +445,7 @@ export default function SalesRanking() {
 
   // --- O RESTO DO CÓDIGO (RENDERIZAÇÃO) ---
 
-  const top3 = vendedores.slice(0, 3);
+  const top3 = top3Vendedores; // 🔴 MUDANÇA: Pódio agora usa o estado semanal
   const allSellers = vendedores;
   const totalPages =
     allSellers.length > 0 ? Math.ceil(allSellers.length / ITEMS_PER_PAGE) : 1;
@@ -468,15 +473,14 @@ export default function SalesRanking() {
   // -----------------------------------------------------------------
   // 🔴 MUDANÇA 3: renderActivePopup CORRIGIDO
   // -----------------------------------------------------------------
+  const closePopup = useCallback(() => {
+    setActiveEvent(null);
+    setEventMessage("");
+    setEventImageUrl(undefined);
+  }, []);
+
   const renderActivePopup = () => {
     if (!activeEvent || !eventMessage) return null;
-
-    const closePopup = () => {
-      setActiveEvent(null);
-      setEventMessage("");
-      setEventImageUrl(undefined);
-    };
-
     switch (activeEvent) {
       case "overtake":
         return (
@@ -589,6 +593,8 @@ export default function SalesRanking() {
           >
             {/* Stats (Diário, Mensal, Anual) */}
             <div className="grid grid-cols-3 gap-4">
+              {" "}
+              {/* 🔴 MUDANÇA: Mantido 3 colunas */}
               <motion.div
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -608,11 +614,29 @@ export default function SalesRanking() {
                 </div>
                 <div className="text-xs text-green-400">Total de hoje</div>
               </motion.div>
-
               <motion.div
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
+                className="bg-slate-900/50 backdrop-blur-md border border-blue-500/30 rounded-xl p-4 hover:border-blue-500/50 transition-colors"
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+                    <CalendarDays className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-white/60">Semanal</div>
+                    <div className="text-xl font-bold text-white">
+                      {formatCurrency(totalPontosSemana)}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs text-blue-400">Total da semana</div>
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
                 className="bg-slate-900/50 backdrop-blur-md border border-purple-500/30 rounded-xl p-4 hover:border-purple-500/50 transition-colors"
               >
                 <div className="flex items-center gap-3 mb-2">
@@ -628,30 +652,10 @@ export default function SalesRanking() {
                 </div>
                 <div className="text-xs text-purple-400">Total do mês</div>
               </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="bg-slate-900/50 backdrop-blur-md border border-yellow-500/30 rounded-xl p-4 hover:border-yellow-500/50 transition-colors"
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center">
-                    <CalendarDays className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <div className="text-xs text-white/60">Anual</div>
-                    <div className="text-xl font-bold text-white">
-                      {formatCurrency(totalPontosAno)}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-xs text-yellow-400">Total do ano</div>
-              </motion.div>
             </div>
 
             {/* Pódio (Top 3) */}
-            <div className="relative flex-1 flex items-end justify-between px-12 pb-16">
+            <div className="relative flex-1 flex items-center justify-between px-12 pb-4">
               <AnimatePresence>
                 {top3.length >= 3 && (
                   <>
@@ -803,8 +807,18 @@ export default function SalesRanking() {
                         <div className="text-white font-medium text-xs md:text-sm truncate">
                           {vendedor.nome}
                         </div>
-                        <div className="text-green-400 text-[10px] md:text-xs">
-                          <span className="font-bold">
+                        {/* 🔴 MUDANÇA: Exibe os 3 valores (Diário, Semanal, Mensal) */}
+                        <div className="flex items-center gap-2 text-[10px] md:text-[11px]">
+                          <span className="flex items-center gap-0.5 text-green-400 font-bold">
+                            <TrendingUp className="w-2.5 h-2.5" />
+                            {formatCurrency(vendedor.pontuacaoDiaria)}
+                          </span>
+                          <span className="flex items-center gap-0.5 text-blue-400 font-bold">
+                            <CalendarDays className="w-2.5 h-2.5" />
+                            {formatCurrency(vendedor.pontuacaoSemanal)}
+                          </span>
+                          <span className="flex items-center gap-0.5 text-purple-400 font-bold">
+                            <Calendar className="w-2.5 h-2.5" />
                             {formatCurrency(vendedor.pontuacao)}
                           </span>
                         </div>
@@ -863,7 +877,7 @@ function PodiumCard({
       shadow: "shadow-yellow-500",
       badge: "from-yellow-400 to-yellow-600",
       size: "w-[220px]",
-      height: "h-[420px]",
+      height: "h-[445px]",
       glow: "from-yellow-500/30 to-yellow-600/10",
       diamond: "from-yellow-400 to-yellow-600",
       accentGlow: "from-yellow-500/20 to-yellow-600/5",
@@ -874,7 +888,7 @@ function PodiumCard({
       shadow: "shadow-cyan-500",
       badge: "from-cyan-400 to-teal-600",
       size: "w-[200px]",
-      height: "h-[365px]",
+      height: "h-[410px]",
       glow: "from-cyan-500/30 to-teal-600/10",
       diamond: "from-cyan-400 to-teal-500",
       accentGlow: "from-cyan-500/20 to-teal-600/5",
@@ -885,13 +899,12 @@ function PodiumCard({
       shadow: "shadow-orange-500",
       badge: "from-orange-400 to-red-600",
       size: "w-[200px]",
-      height: "h-[355px]",
+      height: "h-[390px]",
       glow: "from-orange-500/30 to-red-600/10",
       diamond: "from-orange-400 to-red-500",
       accentGlow: "from-orange-500/20 to-red-600/5",
     },
   };
-
   const style = styles[position as keyof typeof styles];
 
   const getProgressColor = (metrica_valor: number, metrica_total: number) => {
@@ -900,6 +913,12 @@ function PodiumCard({
     if (percentage >= 100 && percentage < 150)
       return "from-blue-400 to-cyan-300";
     return "from-green-500 to-emerald-400";
+  };
+
+  const prizeDetails = {
+    1: { name: "Prêmio a definir", color: "text-yellow-400" },
+    2: { name: "Prêmio a definir", color: "text-cyan-400" },
+    3: { name: "Prêmio a definir", color: "text-orange-400" },
   };
 
   return (
@@ -950,7 +969,16 @@ function PodiumCard({
         />
 
         <div className="relative z-10">
-          <div className="flex justify-center mb-4">
+          <div className="flex flex-col items-center mb-2 translate-y-2">
+            <div className="text-center mb-4 h-5">
+              <span
+                className={`font-bold text-sm ${
+                  prizeDetails[position as keyof typeof prizeDetails].color
+                }`}
+              >
+                {prizeDetails[position as keyof typeof prizeDetails].name}
+              </span>
+            </div>
             <div className="relative">
               <div className="w-[118px] h-[118px] rounded-full overflow-hidden border-4 border-white/20 shadow-xl">
                 <img
@@ -969,18 +997,18 @@ function PodiumCard({
             </div>
           </div>
 
-          <h3 className="text-white font-bold text-xl text-center mb-2">
+          <h3 className="text-white font-bold text-xl text-center mb-2 translate-y-5">
             {vendedor.nome}
           </h3>
 
-          <div className="text-center mb-4">
+          <div className="text-center mb-4 translate-y-4">
             <div className="text-3xl font-bold text-white">
               {formatCurrency(vendedor.pontuacao)}
             </div>
-            <div className="text-sm text-white/60">Comissão</div>
+            <div className="text-sm text-white/60">Vendidos</div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 translate-y-4">
             <div className="flex items-center justify-center text-sm">
               <span className="text-white/60">{vendedor.metrica_nome}:</span>
               {vendedor.metrica_valor < vendedor.metrica_total ? (
