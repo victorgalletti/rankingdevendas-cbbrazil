@@ -16,7 +16,7 @@ interface PopupProps {
 // 1. Função renomeada para NewPointPopup
 export function NewPointPopup({ message, onClose, imageUrl }: PopupProps) {
   useEffect(() => {
-    const timer = setTimeout(() => onClose(), 8000);
+    const timer = setTimeout(() => onClose(), 4000);
     return () => clearTimeout(timer);
   }, [onClose]);
 
@@ -108,7 +108,7 @@ export function NewPointPopup({ message, onClose, imageUrl }: PopupProps) {
             </div>
           )}
 
-          <h4 className="font-bold text-2xl text-white mb-1">NOVO CONTRATO!</h4>
+          <h4 className="font-bold text-2xl text-white mb-1">NOVA VENDA!</h4>
           <p className="text-lg text-green-200/80">{message}</p>
         </div>
       </motion.div>

@@ -5,6 +5,7 @@ import { useEffect, useState, Fragment, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  AlertCircle,
   Clock,
   Users,
   Crown,
@@ -28,6 +29,13 @@ import { OvertakePopup } from "@/components/popups/overtake-popup";
 import { PodiumPopup } from "@/components/popups/podium-popup";
 import { FirstPlacePopup } from "@/components/popups/firstplace-popup";
 import { Awards } from "@/components/award-badge"; // Seu componente de prêmio
+
+// 🔴 MUDANÇA: Interface para o objeto de evento na fila
+interface EventObject {
+  type: AudioEvent;
+  message: string;
+  imageUrl?: string;
+}
 
 // Interfaces e Config
 interface Vendedor {
@@ -79,13 +87,11 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function SalesRanking() {
-  // States de eventos
-  const [activeEvent, setActiveEvent] = useState<AudioEvent | null>(null);
-  const [eventMessage, setEventMessage] = useState<string>("");
-  const [eventImageUrl, setEventImageUrl] = useState<string | undefined>(
-    undefined
+  // 🔴 MUDANÇA: State para a fila de eventos
+  const [eventQueue, setEventQueue] = useState<EventObject[]>([]);
+  const [audioPlayRequest, setAudioPlayRequest] = useState<AudioEvent | null>(
+    null
   );
-  const [playRequest, setPlayRequest] = useState<AudioEvent | null>(null);
   const previousVendedoresRef = useRef<Vendedor[]>([]);
 
   // States de dados
@@ -102,6 +108,7 @@ export default function SalesRanking() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [isMounted, setIsMounted] = useState(false);
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false); // 🔴 MUDANÇA: Estado para controlar o desbloqueio do áudio
 
   // Constantes
   const ITEMS_PER_PAGE = 14;
@@ -118,6 +125,26 @@ export default function SalesRanking() {
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // 🔴 MUDANÇA: Efeito para desbloquear o áudio no primeiro clique do usuário
+  useEffect(() => {
+    const unlockAudio = () => {
+      setIsAudioUnlocked(true);
+      window.removeEventListener("click", unlockAudio);
+    };
+
+    window.addEventListener("click", unlockAudio);
+
+    return () => window.removeEventListener("click", unlockAudio);
+  }, []);
+
+  // Efeito para disparar o áudio quando um novo evento entra na fila
+  useEffect(() => {
+    if (eventQueue.length > 0 && isAudioUnlocked) {
+      // Define o áudio para o evento atual na frente da fila.
+      setAudioPlayRequest(eventQueue[0].type);
+    }
+  }, [eventQueue, isAudioUnlocked]);
 
   // Função formatarVendedores
   const formatarVendedores = useCallback(
@@ -178,17 +205,19 @@ export default function SalesRanking() {
 
   // Função checkForEvents
   const checkForEvents = useCallback(
-    (oldRanking: Vendedor[], newRanking: Vendedor[]): boolean => {
-      if (oldRanking.length === 0) return false;
+    (oldRanking: Vendedor[], newRanking: Vendedor[]): EventObject[] => {
+      const events: EventObject[] = [];
+      if (oldRanking.length === 0) return events;
 
       const newFirst = newRanking[0];
       const oldFirst = oldRanking[0];
       if (newFirst && oldFirst && newFirst.nome !== oldFirst.nome) {
-        setEventMessage(`${newFirst.nome} assumiu a primeira posição!`);
-        setEventImageUrl(newFirst.avatarUrl);
-        setActiveEvent("first-place");
-        setPlayRequest("first-place");
-        return true; // Evento encontrado
+        events.push({
+          type: "first-place",
+          message: `${newFirst.nome} assumiu a primeira posição!`,
+          imageUrl: newFirst.avatarUrl,
+        });
+        // Não retorna aqui para continuar verificando outros eventos
       }
 
       const newPodium = newRanking.slice(0, 3).map((v) => v.nome);
@@ -199,32 +228,35 @@ export default function SalesRanking() {
 
       if (novoMembroPodium) {
         const seller = newRanking.find((v) => v.nome === novoMembroPodium);
-        setEventMessage(`${novoMembroPodium} entrou no Top 3!`);
-        setEventImageUrl(seller?.avatarUrl);
-        setActiveEvent("podium");
-        setPlayRequest("podium");
-        return true; // Evento encontrado
+        events.push({
+          type: "podium",
+          message: `${novoMembroPodium} entrou no Top 3!`,
+          imageUrl: seller?.avatarUrl,
+        });
       }
 
       for (const newSeller of newRanking) {
         const oldSeller = oldRanking.find((s) => s.nome === newSeller.nome);
         if (oldSeller && newSeller.rank < oldSeller.rank) {
+          // Apenas o evento de ultrapassagem mais significativo
           const overtakenSeller = oldRanking.find(
             (s) => s.rank === newSeller.rank
           );
-          setEventMessage(
-            `${newSeller.nome} passou ${
+          events.push({
+            type: "overtake",
+            message: `${newSeller.nome} passou ${
               overtakenSeller?.nome || "um oponente"
-            }!`
-          );
-          setEventImageUrl(newSeller.avatarUrl);
-          setActiveEvent("overtake");
-          setPlayRequest("overtake");
-          return true; // Evento encontrado
+            }!`,
+            imageUrl: newSeller.avatarUrl,
+          });
+          // Retorna após a primeira ultrapassagem para não floodar com várias
+          // A ordem de prioridade já foi definida (first-place > podium > overtake)
+          // Se chegou aqui, os outros não ocorreram.
+          return events;
         }
       }
 
-      return false; // Nenhum evento especial encontrado
+      return events;
     },
     []
   );
@@ -320,27 +352,51 @@ export default function SalesRanking() {
         // 🔴 MUDANÇA: A lógica de eventos e atualização de estado
         // foi movida para DENTRO do fetchData.
         if (previousVendedoresRef.current.length > 0) {
-          const eventoEspecialEncontrado = checkForEvents(
+          const newEventQueue: EventObject[] = [];
+
+          // 1. Prioridade máxima: verificar se houve um novo contrato
+          const sellerWithNewPoint = novosVendedores.find((newSeller) => {
+            const oldSeller = previousVendedoresRef.current.find(
+              (s) => s.nome === newSeller.nome
+            );
+            return oldSeller && newSeller.pontuacao > oldSeller.pontuacao;
+          });
+
+          if (sellerWithNewPoint) {
+            newEventQueue.push({
+              type: "new-point",
+              message: `${sellerWithNewPoint.nome} fechou uma nova venda!`,
+              imageUrl: sellerWithNewPoint.avatarUrl,
+            });
+          }
+
+          // 2. Verificar outros eventos e selecionar apenas o mais prioritário
+          const specialEvents = checkForEvents(
             previousVendedoresRef.current,
             novosVendedores
           );
 
-          if (!eventoEspecialEncontrado) {
-            const sellerWithNewPoint = novosVendedores.find((newSeller) => {
-              const oldSeller = previousVendedoresRef.current.find(
-                (s) => s.nome === newSeller.nome
-              );
-              return oldSeller && newSeller.pontuacao > oldSeller.pontuacao;
-            });
+          if (specialEvents.length > 0) {
+            // Encontra o evento de maior prioridade (first-place > podium > overtake)
+            const firstPlaceEvent = specialEvents.find(
+              (e) => e.type === "first-place"
+            );
+            const podiumEvent = specialEvents.find((e) => e.type === "podium");
+            const overtakeEvent = specialEvents.find(
+              (e) => e.type === "overtake"
+            );
 
-            if (sellerWithNewPoint) {
-              setEventMessage(
-                `${sellerWithNewPoint.nome} fechou um novo contrato!`
-              );
-              setEventImageUrl(sellerWithNewPoint.avatarUrl);
-              setActiveEvent("new-point");
-              setPlayRequest("new-point");
+            const highestPriorityEvent =
+              firstPlaceEvent || podiumEvent || overtakeEvent;
+
+            if (highestPriorityEvent) {
+              newEventQueue.push(highestPriorityEvent);
             }
+          }
+
+          // Adiciona todos os eventos encontrados à fila
+          if (newEventQueue.length > 0) {
+            setEventQueue((prevQueue) => [...prevQueue, ...newEventQueue]);
           }
         }
 
@@ -419,26 +475,11 @@ export default function SalesRanking() {
         message = "Mensagem de Teste",
         imageUrl: string | undefined = undefined
       ) => {
-        setPlayRequest(type); // Toca o som
-
-        // Lógica CORRIGIDA: agora todos os tipos ativam um popup
-        if (type === "new-point") {
-          setEventMessage(message || "Novo contrato fechado!");
-          setEventImageUrl(imageUrl);
-          setActiveEvent("new-point");
-        } else if (type === "overtake") {
-          setEventMessage(message);
-          setEventImageUrl(imageUrl);
-          setActiveEvent("overtake");
-        } else if (type === "podium") {
-          setEventMessage(message);
-          setEventImageUrl(imageUrl);
-          setActiveEvent("podium");
-        } else if (type === "first-place") {
-          setEventMessage(message);
-          setEventImageUrl(imageUrl);
-          setActiveEvent("first-place");
-        }
+        // Adiciona o evento de teste à fila
+        setEventQueue((prev) => [
+          ...prev,
+          { type, message: message, imageUrl },
+        ]);
       };
     }
   }, []);
@@ -473,46 +514,48 @@ export default function SalesRanking() {
   // -----------------------------------------------------------------
   // 🔴 MUDANÇA 3: renderActivePopup CORRIGIDO
   // -----------------------------------------------------------------
-  const closePopup = useCallback(() => {
-    setActiveEvent(null);
-    setEventMessage("");
-    setEventImageUrl(undefined);
+  const closeCurrentPopup = useCallback(() => {
+    // Remove o primeiro item da fila e atualiza o estado
+    setEventQueue((prevQueue) => prevQueue.slice(1));
   }, []);
 
   const renderActivePopup = () => {
-    if (!activeEvent || !eventMessage) return null;
-    switch (activeEvent) {
+    // Pega o primeiro evento da fila, se houver
+    const currentEvent = eventQueue[0];
+    if (!currentEvent) return null;
+
+    switch (currentEvent.type) {
       case "overtake":
         return (
           <OvertakePopup
-            message={eventMessage}
-            onClose={closePopup}
-            imageUrl={eventImageUrl}
+            message={currentEvent.message}
+            onClose={closeCurrentPopup}
+            imageUrl={currentEvent.imageUrl}
           />
         );
       case "podium":
         return (
           <PodiumPopup
-            message={eventMessage}
-            onClose={closePopup}
-            imageUrl={eventImageUrl}
+            message={currentEvent.message}
+            onClose={closeCurrentPopup}
+            imageUrl={currentEvent.imageUrl}
           />
         );
       case "first-place":
         return (
           <FirstPlacePopup
-            message={eventMessage}
-            onClose={closePopup}
-            imageUrl={eventImageUrl}
+            message={currentEvent.message}
+            onClose={closeCurrentPopup}
+            imageUrl={currentEvent.imageUrl}
           />
         );
       case "new-point":
         return (
           // Usa o NewPointPopup (com o nome corrigido)
           <NewPointPopup
-            message={eventMessage}
-            onClose={closePopup}
-            imageUrl={eventImageUrl}
+            message={currentEvent.message}
+            onClose={closeCurrentPopup}
+            imageUrl={currentEvent.imageUrl}
           />
         );
       default:
@@ -541,8 +584,8 @@ export default function SalesRanking() {
         )}
 
       <AudioController
-        playRequest={playRequest}
-        onPlayComplete={() => setPlayRequest(null)}
+        playRequest={audioPlayRequest}
+        onPlayComplete={() => setAudioPlayRequest(null)} // Limpa o pedido após tocar
       />
 
       <div className="w-full h-screen overflow-hidden flex flex-col pt-1 px-6 pb-16 gap-2">
