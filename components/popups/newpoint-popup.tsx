@@ -37,7 +37,7 @@ export function NewPointPopup({ message, onClose, imageUrl }: PopupProps) {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.8, y: 50 }}
         transition={{ type: "spring", stiffness: 200, damping: 20 }}
-        className="fixed top-[20vw] left-[40vw] -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md p-4"
+        className="fixed top-[20vw] left-[38vw] -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md p-4"
       >
         {/* Money rain animation */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">

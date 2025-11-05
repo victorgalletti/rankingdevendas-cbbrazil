@@ -429,18 +429,18 @@ export default function SalesRanking() {
 
     // 3. Inscreve-se nos canais usando o novo handler
     const vendasChannel = supabase
-      .channel("vendas_changes") // ⚠️ ATENÇÃO: Canal com nome único
+      .channel("vendas_changes")
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
-          table: "relatorio_leads", // 🔴 MUDANÇA: Usando o nome correto da tabela
+          table: "relatorio_leads",
+          filter: "status=eq.Venda Ganha",
         },
         handleInserts
       )
       .subscribe();
-
     const vendedoresChannel = supabase
       .channel("ranking_vendedores_changes") // Mantido, caso um vendedor mude de nome/avatar
       .on(
@@ -1045,7 +1045,7 @@ function PodiumCard({
           </h3>
 
           <div className="text-center mb-4 translate-y-4">
-            <div className="text-3xl font-bold text-white">
+            <div className="text-2xl font-bold text-white">
               {formatCurrency(vendedor.pontuacao)}
             </div>
             <div className="text-sm text-white/60">Vendidos</div>

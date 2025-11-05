@@ -67,3 +67,89 @@ useEffect(() => {
 ```
 
 Com essa abordagem, o sistema aguarda a primeira interação do usuário para "ganhar permissão" e, a partir desse momento, todas as notificações sonoras funcionarão como esperado, sem erros no console.
+
+vamos la ultima alteracao na logica de animacoes
+
+3 animacoes sao consideradas especiais e uma obrigatoria
+
+prioridade de cada first place 1 podium 2 ultrapassagem 3
+
+1 é mais prioritario
+
+na fila so vai ter o new point e uma animacao especial se tiver
+
+de acordo com essa logica
+
+pois se n fica aparecendo varias
+
+Gemini
+Thinking
+Olá! Entendido. Vamos para a última alteração na lógica de animações para garantir que a fila de pop-ups se comporte exatamente como você deseja: sempre mostrar o "novo contrato" e, no máximo, uma animação especial, respeitando a ordem de prioridade.
+
+Para isso, farei uma alteração crucial na função fetchData. Em vez de simplesmente adicionar todos os eventos encontrados, a lógica agora irá:
+
+Sempre adicionar o evento new-point se ele ocorrer.
+Analisar todos os outros eventos especiais (first-place, podium, overtake).
+Selecionar apenas o mais importante entre eles, seguindo a prioridade que você definiu (first-place > podium > overtake).
+Adicionar no máximo esses dois eventos (new-point e o especial mais importante) à fila.
+Isso evitará o acúmulo de várias animações e garantirá que apenas as mais relevantes sejam exibidas.
+
+Aqui está a alteração no arquivo sales-ranking.tsx:
+
+sales-ranking.tsx
+-6
++18
+Show full code block
+// 🔴 MUDANÇA: A lógica de eventos e atualização de estado
+// foi movida para DENTRO do fetchData.
+if (previousVendedoresRef.current.length > 0) {
+const allEvents: EventObject[] = [];
+const newEventQueue: EventObject[] = [];
+
+          // 1. Prioridade máxima: verificar se houve um novo contrato
+          const sellerWithNewPoint = novosVendedores.find((newSeller) => {
+            const oldSeller = previousVendedoresRef.current.find(
+              (s) => s.nome === newSeller.nome
+            );
+            return oldSeller && newSeller.pontuacao > oldSeller.pontuacao;
+          });
+
+          if (sellerWithNewPoint) {
+            allEvents.push({
+            newEventQueue.push({
+              type: "new-point",
+              message: `${sellerWithNewPoint.nome} fechou uma nova venda!`,
+              imageUrl: sellerWithNewPoint.avatarUrl,
+            });
+          }
+
+          // 2. Verificar outros eventos (ultrapassagem, pódio, etc.)
+          // 2. Verificar outros eventos e selecionar apenas o mais prioritário
+          const specialEvents = checkForEvents(
+            previousVendedoresRef.current,
+            novosVendedores
+          );
+          allEvents.push(...specialEvents);
+
+          if (specialEvents.length > 0) {
+            // Encontra o evento de maior prioridade (first-place > podium > overtake)
+            const firstPlaceEvent = specialEvents.find(e => e.type === 'first-place');
+            const podiumEvent = specialEvents.find(e => e.type === 'podium');
+            const overtakeEvent = specialEvents.find(e => e.type === 'overtake');
+
+            const highestPriorityEvent = firstPlaceEvent || podiumEvent || overtakeEvent;
+
+            if (highestPriorityEvent) {
+              newEventQueue.push(highestPriorityEvent);
+            }
+          }
+
+          // Adiciona todos os eventos encontrados à fila
+          if (allEvents.length > 0) {
+            setEventQueue((prevQueue) => [...prevQueue, ...allEvents]);
+          if (newEventQueue.length > 0) {
+            setEventQueue((prevQueue) => [...prevQueue, ...newEventQueue]);
+          }
+        }
+
+Com esta lógica refinada, a experiência de notificação ficará mais limpa e focada, exibindo sempre a informação de uma nova venda e apenas o evento de ranking mais impactante que ocorreu.
