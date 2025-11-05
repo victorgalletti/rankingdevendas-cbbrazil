@@ -1,11 +1,9 @@
 "use client";
 
-// 1. Imports (Adicionado 'createPortal')
 import { useEffect, useState, Fragment, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  AlertCircle,
   Clock,
   Users,
   Crown,
@@ -17,10 +15,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 
-// 🔴 MUDANÇA 1: Importa o componente com o nome correto
 import { NewPointPopup } from "@/components/popups/newpoint-popup";
-
-// 2. Importa os novos componentes (sem mudanças)
 import {
   AudioController,
   type AudioEvent,
@@ -28,125 +23,106 @@ import {
 import { OvertakePopup } from "@/components/popups/overtake-popup";
 import { PodiumPopup } from "@/components/popups/podium-popup";
 import { FirstPlacePopup } from "@/components/popups/firstplace-popup";
-import { Awards } from "@/components/award-badge"; // Seu componente de prêmio
+import { Awards } from "@/components/award-badge";
 
-// 🔴 MUDANÇA: Interface para o objeto de evento na fila
+// -------------------- Tipos --------------------
 interface EventObject {
   type: AudioEvent;
   message: string;
   imageUrl?: string;
 }
 
-// Interfaces e Config
 interface Vendedor {
   rank: number;
   nome: string;
   avatarUrl: string;
-  pontuacao: number; // <-- Isso agora será a contagem DO MÊS
-  pontuacaoDiaria: number; // 🔴 MUDANÇA: Pontuação do dia
-  pontuacaoSemanal: number; // 🔴 MUDANÇA: Pontuação da semana
+  pontuacao: number; // mensal
+  pontuacaoDiaria: number;
+  pontuacaoSemanal: number;
   metrica_nome: string;
-  metrica_valor: number; // <-- Isso também será a contagem DO MÊS
+  metrica_valor: number; // mensal
   metrica_total: number;
 }
 
-// Tipo para os dados da tabela de Vendedores (mantido para avatares)
 type VendedorSupabase = {
   id: number;
   nome: string;
-  avatarurl: string; // 🔴 MUDANÇA: Ajustado para corresponder à sua coluna
+  avatarurl: string;
 };
 
-// 🔴 MUDANÇA: Novo tipo para os dados da sua nova tabela de vendas
 type VendaSupabase = {
   id: number;
-  vendedor: string; // Nome do vendedor como string
-  status: string; // 'Venda Ganha', etc.
-  comissaoempresa: number; // Valor da comissão
-  datavendaganha: string; // Data da venda
+  vendedor: string;
+  status: string;
+  comissaoempresa: number;
+  datavendaganha: string;
 };
 
-// Helper para formatar como moeda BRL
-const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
-};
+// -------------------- Utils --------------------
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+    value || 0
+  );
 
-// Tipo para os dados que vêm da tabela de Logs (não mais usado diretamente para cálculo)
-type LeadSupabase = {
-  id: number;
-  vendedorid: number;
-  created_at: string;
-};
-
-// Config Supabase
+// -------------------- Supabase --------------------
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// -------------------- Componente --------------------
 export default function SalesRanking() {
-  // 🔴 MUDANÇA: State para a fila de eventos
+  // fila de eventos + audio
   const [eventQueue, setEventQueue] = useState<EventObject[]>([]);
   const [audioPlayRequest, setAudioPlayRequest] = useState<AudioEvent | null>(
     null
   );
   const previousVendedoresRef = useRef<Vendedor[]>([]);
 
-  // States de dados
+  // dados
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
-  const [top3Vendedores, setTop3Vendedores] = useState<Vendedor[]>([]); // 🔴 MUDANÇA: Estado para o pódio semanal
+  const [top3Vendedores, setTop3Vendedores] = useState<Vendedor[]>([]); // pódio semanal
   const [totalPontosDia, setTotalPontosDia] = useState(0);
   const [totalPontosSemana, setTotalPontosSemana] = useState(0);
   const [totalPontosMes, setTotalPontosMes] = useState(0);
-  const [totalPontosAno, setTotalPontosAno] = useState(0);
+  const [totalPontosAno] = useState(0); // se quiser, calcule separado/assíncrono
 
-  // States de UI
+  // UI
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [isMounted, setIsMounted] = useState(false);
-  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false); // 🔴 MUDANÇA: Estado para controlar o desbloqueio do áudio
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
   // Constantes
   const ITEMS_PER_PAGE = 14;
-  const META_DIARIA = 1500;
-  const META_SEMANA = 7500;
   const META_MENSAL = 30000;
 
-  // Hook para manter o Ref
+  // manter previous ref
   useEffect(() => {
     previousVendedoresRef.current = vendedores;
   }, [vendedores]);
 
-  // Hook para 'isMounted'
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  useEffect(() => setIsMounted(true), []);
 
-  // 🔴 MUDANÇA: Efeito para desbloquear o áudio no primeiro clique do usuário
+  // desbloqueio de áudio
   useEffect(() => {
     const unlockAudio = () => {
       setIsAudioUnlocked(true);
       window.removeEventListener("click", unlockAudio);
     };
-
     window.addEventListener("click", unlockAudio);
-
     return () => window.removeEventListener("click", unlockAudio);
   }, []);
 
-  // Efeito para disparar o áudio quando um novo evento entra na fila
+  // tocar áudio quando há evento e áudio liberado
   useEffect(() => {
     if (eventQueue.length > 0 && isAudioUnlocked) {
-      // Define o áudio para o evento atual na frente da fila.
       setAudioPlayRequest(eventQueue[0].type);
     }
   }, [eventQueue, isAudioUnlocked]);
 
-  // Função formatarVendedores
+  // formatação dos vendedores (mensal como base)
   const formatarVendedores = useCallback(
     (
       listaVendedoresSupabase: VendedorSupabase[],
@@ -154,56 +130,44 @@ export default function SalesRanking() {
       vendasSemanais: VendaSupabase[],
       vendasMensais: VendaSupabase[]
     ): Vendedor[] => {
-      // Função para calcular pontuação de um período
       const calcularPontuacao = (vendas: VendaSupabase[]) => {
-        const pontuacao: { [key: string]: number } = {};
+        const pontuacao: Record<string, number> = {};
         for (const venda of vendas) {
-          if (!pontuacao[venda.vendedor]) {
-            pontuacao[venda.vendedor] = 0;
-          }
-          pontuacao[venda.vendedor] += venda.comissaoempresa;
+          pontuacao[venda.vendedor] =
+            (pontuacao[venda.vendedor] || 0) + (venda.comissaoempresa || 0);
         }
         return pontuacao;
       };
 
-      const pontuacaoDiariaPorVendedor = calcularPontuacao(vendasDiarias);
-      const pontuacaoSemanalPorVendedor = calcularPontuacao(vendasSemanais);
-      const pontuacaoMensalPorVendedor = calcularPontuacao(vendasMensais);
+      const pontDia = calcularPontuacao(vendasDiarias);
+      const pontSem = calcularPontuacao(vendasSemanais);
+      const pontMes = calcularPontuacao(vendasMensais);
 
-      const vendedoresFormatados = listaVendedoresSupabase.map((vendedor) => {
-        const pontuacaoMensal = pontuacaoMensalPorVendedor[vendedor.nome] || 0;
-        const pontuacaoDiaria = pontuacaoDiariaPorVendedor[vendedor.nome] || 0;
-        const pontuacaoSemanal =
-          pontuacaoSemanalPorVendedor[vendedor.nome] || 0;
+      const vendidos = listaVendedoresSupabase.map((v) => {
+        const pm = pontMes[v.nome] || 0;
+        const pd = pontDia[v.nome] || 0;
+        const ps = pontSem[v.nome] || 0;
 
         return {
           rank: 0,
-          nome: vendedor.nome,
-          avatarUrl: vendedor.avatarurl || "/placeholder.svg",
-          pontuacao: pontuacaoMensal, // A pontuação principal continua sendo a mensal para o ranking
-          pontuacaoDiaria: pontuacaoDiaria,
-          pontuacaoSemanal: pontuacaoSemanal,
-          metrica_valor: pontuacaoMensal, // Barra de progresso baseada na meta mensal
+          nome: v.nome,
+          avatarUrl: v.avatarurl || "/placeholder.svg",
+          pontuacao: pm, // ranking principal = mensal
+          pontuacaoDiaria: pd,
+          pontuacaoSemanal: ps,
+          metrica_valor: pm, // barra baseada na meta mensal
           metrica_total: META_MENSAL,
-          metrica_nome:
-            pontuacaoMensal >= META_MENSAL ? "Meta Atingida" : "Faltam",
-        };
+          metrica_nome: pm >= META_MENSAL ? "Meta Atingida" : "Faltam",
+        } as Vendedor;
       });
 
-      // A ordenação continua baseada na pontuação MENSAL
-      const ordenados = vendedoresFormatados.sort(
-        (a, b) => b.pontuacao - a.pontuacao
-      );
-
-      return ordenados.map((vendedor, index) => ({
-        ...vendedor,
-        rank: index + 1,
-      }));
+      const ordenados = vendidos.sort((a, b) => b.pontuacao - a.pontuacao);
+      return ordenados.map((v, i) => ({ ...v, rank: i + 1 }));
     },
     []
   );
 
-  // Função checkForEvents
+  // detecção de eventos
   const checkForEvents = useCallback(
     (oldRanking: Vendedor[], newRanking: Vendedor[]): EventObject[] => {
       const events: EventObject[] = [];
@@ -217,15 +181,11 @@ export default function SalesRanking() {
           message: `${newFirst.nome} assumiu a primeira posição!`,
           imageUrl: newFirst.avatarUrl,
         });
-        // Não retorna aqui para continuar verificando outros eventos
       }
 
       const newPodium = newRanking.slice(0, 3).map((v) => v.nome);
       const oldPodium = oldRanking.slice(0, 3).map((v) => v.nome);
-      const novoMembroPodium = newPodium.find(
-        (nome) => !oldPodium.includes(nome)
-      );
-
+      const novoMembroPodium = newPodium.find((n) => !oldPodium.includes(n));
       if (novoMembroPodium) {
         const seller = newRanking.find((v) => v.nome === novoMembroPodium);
         events.push({
@@ -235,24 +195,16 @@ export default function SalesRanking() {
         });
       }
 
-      for (const newSeller of newRanking) {
-        const oldSeller = oldRanking.find((s) => s.nome === newSeller.nome);
-        if (oldSeller && newSeller.rank < oldSeller.rank) {
-          // Apenas o evento de ultrapassagem mais significativo
-          const overtakenSeller = oldRanking.find(
-            (s) => s.rank === newSeller.rank
-          );
+      for (const n of newRanking) {
+        const o = oldRanking.find((s) => s.nome === n.nome);
+        if (o && n.rank < o.rank) {
+          const overtaken = oldRanking.find((s) => s.rank === n.rank);
           events.push({
             type: "overtake",
-            message: `${newSeller.nome} passou ${
-              overtakenSeller?.nome || "um oponente"
-            }!`,
-            imageUrl: newSeller.avatarUrl,
+            message: `${n.nome} passou ${overtaken?.nome || "um oponente"}!`,
+            imageUrl: n.avatarUrl,
           });
-          // Retorna após a primeira ultrapassagem para não floodar com várias
-          // A ordem de prioridade já foi definida (first-place > podium > overtake)
-          // Se chegou aqui, os outros não ocorreram.
-          return events;
+          return events; // apenas a primeira ultrapassagem
         }
       }
 
@@ -261,9 +213,8 @@ export default function SalesRanking() {
     []
   );
 
-  // 🔴 MUDANÇA: A função fetchData agora é a única fonte de verdade
-  // Foi removido o useCallback para que a função sempre tenha acesso ao ref mais recente.
-  const fetchData = async () => {
+  // fetchData ESTÁVEL (mês atual)
+  const fetchData = useCallback(async () => {
     try {
       const hoje = new Date();
       const inicioDoDia = new Date(
@@ -271,195 +222,180 @@ export default function SalesRanking() {
         hoje.getMonth(),
         hoje.getDate()
       );
-      const inicioDoAno = new Date(hoje.getFullYear(), 0, 1);
-      const inicioDoMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-      // 🔴 MUDANÇA: Calcula o início da semana (domingo)
       const inicioDaSemana = new Date(
         hoje.getFullYear(),
         hoje.getMonth(),
         hoje.getDate() - hoje.getDay()
       );
+      const inicioDoMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
 
-      // 🔴 MUDANÇA: Busca na nova tabela de vendas e na de vendedores (para avatares)
-      const [vendedoresResponse, vendasDoAnoResponse] = await Promise.all([
+      const [vendedoresResponse, vendasDoMesResponse] = await Promise.all([
         supabase.from("ranking_vendedores").select("id, nome, avatarurl"),
         supabase
-          .from("relatorio_leads") // 🔴 MUDANÇA: Usando o nome correto da tabela
+          .from("relatorio_leads")
           .select("vendedor, status, comissaoempresa, datavendaganha")
-          .eq("status", "Venda Ganha") // Filtra apenas 'Venda Ganha'
-          .gte("datavendaganha", inicioDoAno.toISOString()), // Otimiza a busca pegando só do ano atual
+          .eq("status", "Venda Ganha")
+          .gte("datavendaganha", inicioDoMes.toISOString()),
       ]);
-
       if (vendedoresResponse.error) throw vendedoresResponse.error;
-      if (vendasDoAnoResponse.error) throw vendasDoAnoResponse.error;
+      if (vendasDoMesResponse.error) throw vendasDoMesResponse.error;
 
-      if (vendedoresResponse.data && vendasDoAnoResponse.data) {
-        const listaVendedores = vendedoresResponse.data as VendedorSupabase[];
-        const vendasDoAno = vendasDoAnoResponse.data as VendaSupabase[];
+      const listaVendedores = (vendedoresResponse.data ??
+        []) as VendedorSupabase[];
+      const vendasDoMes = (vendasDoMesResponse.data ?? []) as VendaSupabase[];
 
-        // Filtra os períodos em memória
-        const vendasDoMes = vendasDoAno.filter(
-          (v) => new Date(v.datavendaganha) >= inicioDoMes
-        );
-        const vendasDaSemana = vendasDoMes.filter(
-          (v) => new Date(v.datavendaganha) >= inicioDaSemana
-        );
-        const vendasDoDia = vendasDoMes.filter(
-          (v) => new Date(v.datavendaganha) >= inicioDoDia
-        );
+      const vendasDaSemana = vendasDoMes.filter(
+        (v) => new Date(v.datavendaganha) >= inicioDaSemana
+      );
+      const vendasDoDia = vendasDoMes.filter(
+        (v) => new Date(v.datavendaganha) >= inicioDoDia
+      );
 
-        // 🔴 MUDANÇA: Calcula o total da semana
-        const totalSemana = vendasDaSemana.reduce(
-          (acc, v) => acc + v.comissaoempresa,
-          0
-        );
-        // 🔴 MUDANÇA: Calcula os totais somando a comissão
-        const totalMes = vendasDoMes.reduce(
-          (acc, v) => acc + v.comissaoempresa,
-          0
-        );
-        const totalDia = vendasDoDia.reduce(
-          (acc, v) => acc + v.comissaoempresa,
-          0
-        );
-        const totalAno = vendasDoAno.reduce(
-          (acc, v) => acc + v.comissaoempresa,
-          0
-        );
+      const soma = (arr: VendaSupabase[]) =>
+        arr.reduce((a, v) => a + (v.comissaoempresa || 0), 0);
 
-        setTotalPontosAno(totalAno);
-        setTotalPontosSemana(totalSemana); // Atualiza o total da semana
-        setTotalPontosMes(totalMes);
-        setTotalPontosDia(totalDia);
+      setTotalPontosDia(soma(vendasDoDia));
+      setTotalPontosSemana(soma(vendasDaSemana));
+      setTotalPontosMes(soma(vendasDoMes));
 
-        // 🔴 MUDANÇA: Formata os vendedores para o pódio (semanal)
-        const vendedoresDaSemana = formatarVendedores(
-          listaVendedores,
-          vendasDoDia,
-          vendasDaSemana,
-          vendasDoMes // A pontuação principal do pódio é baseada na semana, mas precisamos dos outros dados
-        );
-        setTop3Vendedores(vendedoresDaSemana.slice(0, 3));
+      const novosVendedores = formatarVendedores(
+        listaVendedores,
+        vendasDoDia,
+        vendasDaSemana,
+        vendasDoMes
+      );
 
-        // Formata os vendedores para o ranking principal (mensal)
-        const novosVendedores = formatarVendedores(
-          listaVendedores,
-          vendasDoDia,
-          vendasDaSemana,
-          vendasDoMes
-        );
+      // >>>>>>>>>>>> PÓDIO SEMANAL <<<<<<<<<<<<<<
+      const top3Semanal = [...novosVendedores]
+        .sort((a, b) => b.pontuacaoSemanal - a.pontuacaoSemanal)
+        .slice(0, 3);
+      setTop3Vendedores(top3Semanal);
 
-        // 🔴 MUDANÇA: A lógica de eventos e atualização de estado
-        // foi movida para DENTRO do fetchData.
-        if (previousVendedoresRef.current.length > 0) {
-          const newEventQueue: EventObject[] = [];
+      // Eventos
+      if (previousVendedoresRef.current.length > 0) {
+        const newEventQueue: EventObject[] = [];
 
-          // 1. Prioridade máxima: verificar se houve um novo contrato
-          const sellerWithNewPoint = novosVendedores.find((newSeller) => {
-            const oldSeller = previousVendedoresRef.current.find(
-              (s) => s.nome === newSeller.nome
-            );
-            return oldSeller && newSeller.pontuacao > oldSeller.pontuacao;
-          });
-
-          if (sellerWithNewPoint) {
-            newEventQueue.push({
-              type: "new-point",
-              message: `${sellerWithNewPoint.nome} fechou uma nova venda!`,
-              imageUrl: sellerWithNewPoint.avatarUrl,
-            });
-          }
-
-          // 2. Verificar outros eventos e selecionar apenas o mais prioritário
-          const specialEvents = checkForEvents(
-            previousVendedoresRef.current,
-            novosVendedores
+        const sellerWithNewPoint = novosVendedores.find((n) => {
+          const o = previousVendedoresRef.current.find(
+            (s) => s.nome === n.nome
           );
-
-          if (specialEvents.length > 0) {
-            // Encontra o evento de maior prioridade (first-place > podium > overtake)
-            const firstPlaceEvent = specialEvents.find(
-              (e) => e.type === "first-place"
-            );
-            const podiumEvent = specialEvents.find((e) => e.type === "podium");
-            const overtakeEvent = specialEvents.find(
-              (e) => e.type === "overtake"
-            );
-
-            const highestPriorityEvent =
-              firstPlaceEvent || podiumEvent || overtakeEvent;
-
-            if (highestPriorityEvent) {
-              newEventQueue.push(highestPriorityEvent);
-            }
-          }
-
-          // Adiciona todos os eventos encontrados à fila
-          if (newEventQueue.length > 0) {
-            setEventQueue((prevQueue) => [...prevQueue, ...newEventQueue]);
-          }
+          return o && n.pontuacao > o.pontuacao;
+        });
+        if (sellerWithNewPoint) {
+          newEventQueue.push({
+            type: "new-point",
+            message: `${sellerWithNewPoint.nome} fechou uma nova venda!`,
+            imageUrl: sellerWithNewPoint.avatarUrl,
+          });
         }
 
-        setVendedores(novosVendedores); // Atualiza o estado principal
-        setLastUpdate(new Date());
-        setError(null);
+        const special = checkForEvents(
+          previousVendedoresRef.current,
+          novosVendedores
+        );
+        const highest =
+          special.find((e) => e.type === "first-place") ||
+          special.find((e) => e.type === "podium") ||
+          special.find((e) => e.type === "overtake");
+        if (highest) newEventQueue.push(highest);
+
+        if (newEventQueue.length)
+          setEventQueue((prev) => [...prev, ...newEventQueue]);
       }
+
+      setVendedores(novosVendedores);
+      setLastUpdate(new Date());
+      setError(null);
     } catch (err) {
-      let errorMessage = "Não foi possível carregar o ranking.";
-      if (err instanceof Error) {
-        errorMessage = `Erro ao buscar dados: ${err.message}`;
-      }
-      setError(errorMessage);
+      setError(
+        err instanceof Error
+          ? `Erro ao buscar dados: ${err.message}`
+          : "Não foi possível carregar o ranking."
+      );
       console.error("[SalesRanking] Error fetching data:", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [formatarVendedores, checkForEvents]);
 
-  // useEffect Realtime
+  // Realtime com throttle
   useEffect(() => {
-    // 1. Busca inicial
-    fetchData();
+    fetchData(); // carga inicial
 
-    // 2. Define o handler que apenas chama a função estável
-    const handleInserts = (payload: any) => {
-      console.log("Nova venda! Recalculando tudo...", payload);
-      fetchData();
+    // throttle para agrupar bursts
+    let throttleId: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefetch = () => {
+      if (throttleId) return;
+      throttleId = setTimeout(() => {
+        throttleId = null;
+        // se quiser manter economia, pode deixar o guard de aba oculta – mas pra debug, vamos sempre buscar:
+        fetchData();
+      }, 1200);
     };
 
-    // 3. Inscreve-se nos canais usando o novo handler
+    // handler genérico: dispara apenas quando o NEW.status é "Venda Ganha" e é do mês atual.
+    const handleChange = (payload: any) => {
+      const row = payload.new as { status?: string; datavendaganha?: string };
+      if (!row) return;
+      if (row.status !== "Venda Ganha") return;
+
+      const now = new Date();
+      const inicioDoMes = new Date(now.getFullYear(), now.getMonth(), 1);
+      if (!row.datavendaganha || new Date(row.datavendaganha) < inicioDoMes)
+        return;
+
+      scheduleRefetch();
+    };
+
+    // IMPORTANTE: escuta INSERT **e** UPDATE
     const vendasChannel = supabase
       .channel("vendas_changes")
       .on(
         "postgres_changes",
         {
-          event: "INSERT",
+          event: "*", // INSERT e UPDATE
           schema: "public",
           table: "relatorio_leads",
-          filter: "status=eq.Venda Ganha",
+          filter: "status=eq.Venda Ganha", // server-side (NEW.status)
         },
-        handleInserts
-      )
-      .subscribe();
-    const vendedoresChannel = supabase
-      .channel("ranking_vendedores_changes") // Mantido, caso um vendedor mude de nome/avatar
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "ranking_vendedores",
-        },
-        handleInserts
+        (payload) => {
+          const n = payload.new as { status?: string; datavendaganha?: string };
+          const o = payload.old as { status?: string } | undefined;
+
+          if (!n || n.status !== "Venda Ganha") return;
+
+          // opcional: só quando mudou para 'Venda Ganha'
+          if (payload.eventType === "UPDATE" && o?.status === "Venda Ganha")
+            return;
+
+          const inicioDoMes = new Date(
+            new Date().getFullYear(),
+            new Date().getMonth(),
+            1
+          );
+          if (!n.datavendaganha || new Date(n.datavendaganha) < inicioDoMes)
+            return;
+
+          scheduleRefetch(); // seu throttle
+        }
       )
       .subscribe();
 
-    // 4. Limpa as inscrições ao desmontar
+    const vendedoresChannel = supabase
+      .channel("ranking_vendedores_changes")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "ranking_vendedores" },
+        () => scheduleRefetch()
+      )
+      .subscribe();
+
     return () => {
+      if (throttleId) clearTimeout(throttleId);
       supabase.removeChannel(vendasChannel);
       supabase.removeChannel(vendedoresChannel);
     };
-  }, [fetchData]); // 🔴 MUDANÇA: A única dependência é o fetchData estável
+  }, [fetchData]);
 
   // -----------------------------------------------------------------
   // 🔴 MUDANÇA 2: useEffect de Teste CORRIGIDO
